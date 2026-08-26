@@ -4,6 +4,8 @@ import Network
 
 final class UDPListener: @unchecked Sendable {
     private let queue = DispatchQueue(label: "DroneDamageInspection.UDPListener")
+
+    nonisolated init() {}
     nonisolated(unsafe) private var listener: NWListener?
     nonisolated(unsafe) private(set) var isListening = false
 
@@ -48,7 +50,7 @@ final class UDPListener: @unchecked Sendable {
         }
     }
 
-    func stop() {
+    nonisolated func stop() {
         listener?.cancel()
         listener = nil
         isListening = false

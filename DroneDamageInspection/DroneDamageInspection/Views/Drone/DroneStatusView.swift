@@ -4,12 +4,23 @@ struct DroneStatusView: View {
     let isConnected: Bool
     let batteryLevel: Int
     let altitude: Double
+    let speed: Double
+    let temperature: Int
+    let flightTime: Int
 
     var body: some View {
-        HStack(spacing: 16) {
-            Label(isConnected ? "Connected" : "Disconnected", systemImage: isConnected ? "wifi" : "wifi.slash")
-            Label("Battery \(batteryLevel)%", systemImage: "battery.75")
-            Label("\(altitude.formatted()) m", systemImage: "arrow.up")
+        Grid(horizontalSpacing: 16, verticalSpacing: 8) {
+            GridRow {
+                Label(isConnected ? "Connected" : "Disconnected", systemImage: isConnected ? "wifi" : "wifi.slash")
+                Label("Battery \(batteryLevel)%", systemImage: "battery.75")
+                Label("\(altitude.metersText)", systemImage: "arrow.up")
+            }
+
+            GridRow {
+                Label("\(speed.formatted()) cm/s", systemImage: "speedometer")
+                Label("\(temperature) C", systemImage: "thermometer.medium")
+                Label("\(flightTime) s", systemImage: "timer")
+            }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
@@ -17,5 +28,12 @@ struct DroneStatusView: View {
 }
 
 #Preview {
-    DroneStatusView(isConnected: false, batteryLevel: 0, altitude: 0)
+    DroneStatusView(
+        isConnected: false,
+        batteryLevel: 0,
+        altitude: 0,
+        speed: 0,
+        temperature: 0,
+        flightTime: 0
+    )
 }

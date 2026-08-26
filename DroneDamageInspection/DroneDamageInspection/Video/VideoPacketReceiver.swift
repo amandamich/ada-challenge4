@@ -1,17 +1,36 @@
 import Foundation
 
-final class VideoPacketReceiver {
+final class VideoPacketReceiver: @unchecked Sendable {
     private let listener: UDPListener
+    private let configuration: NetworkConfiguration
 
-    init(listener: UDPListener = UDPListener()) {
+    nonisolated init(
+        listener: UDPListener = UDPListener(),
+        configuration: NetworkConfiguration = .tello
+    ) {
         self.listener = listener
+        self.configuration = configuration
     }
 
-    func startReceiving(on port: UInt16 = NetworkConfiguration.tello.videoPort) async throws {
-        try await listener.start(on: port)
+    nonisolated func packetStream() -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    try await listener.start(on: configuration.videoPort) { data in
+                        continuation.yield(data)
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { [listener] _ in
+                listener.stop()
+            }
+        }
     }
 
-    func stopReceiving() {
+    nonisolated func stopReceiving() {
         listener.stop()
     }
 }

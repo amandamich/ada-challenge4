@@ -11,7 +11,7 @@ final class UDPClient: @unchecked Sendable {
     }
 
     @discardableResult
-    func send(_ message: String, timeout: TimeInterval = 5) async throws -> String {
+    func send(_ message: String, timeout: TimeInterval = 8) async throws -> String {
         guard let port = configuration.commandEndpointPort else {
             throw NetworkCommunicationError.invalidPort(configuration.commandPort)
         }

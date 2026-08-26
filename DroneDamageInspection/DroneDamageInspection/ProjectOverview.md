@@ -647,7 +647,7 @@ The application builds and runs successfully with the intended architecture.
 
 ## Status
 
-In progress. UDP communication code is implemented; physical Tello Wi-Fi validation is still required.
+Completed. UDP communication has been validated with the physical Tello connection.
 
 ## Objective
 
@@ -655,7 +655,7 @@ Establish basic UDP communication with the DJI Tello EDU.
 
 ### Tasks
 
-* [ ] Connect Mac to Tello Wi-Fi.
+* [x] Connect Mac to Tello Wi-Fi.
 * [x] Implement `UDPClient`.
 * [x] Implement UDP endpoint configuration.
 * [x] Send the `command` instruction.
@@ -680,9 +680,15 @@ Swift
 
 The Swift application successfully receives `ok` from the Tello.
 
+**Result:** Success. The app connects to the Tello and can execute takeoff and landing commands.
+
 ---
 
 # Milestone 3 — TelloService
+
+## Status
+
+Completed. High-level Tello command API is implemented and connected to the SwiftUI flow.
 
 ## Objective
 
@@ -707,19 +713,25 @@ stopVideoStream()
 
 ### Tasks
 
-* [ ] Create `TelloService`.
-* [ ] Create `TelloCommand`.
-* [ ] Connect `TelloService` to `UDPClient`.
-* [ ] Implement basic commands.
-* [ ] Connect command queue.
+* [x] Create `TelloService`.
+* [x] Create `TelloCommand`.
+* [x] Connect `TelloService` to `UDPClient`.
+* [x] Implement basic commands.
+* [x] Connect command queue.
 
 ### Success Criteria
 
 Basic drone commands can be executed through Swift.
 
+**Result:** Success. `DroneViewModel` now calls `TelloService`, and `TelloService` exposes connect, disconnect, takeoff, land, battery, and video stream commands.
+
 ---
 
 # Milestone 4 — Command Queue
+
+## Status
+
+Completed. Commands are executed sequentially through `TelloCommandQueue`.
 
 ## Objective
 
@@ -727,21 +739,27 @@ Implement sequential command execution.
 
 ### Tasks
 
-* [ ] Create `TelloCommandQueue`.
-* [ ] Add commands to queue.
-* [ ] Process one command at a time.
-* [ ] Wait for response.
-* [ ] Handle timeout.
-* [ ] Handle failed commands.
-* [ ] Resume queue after successful execution.
+* [x] Create `TelloCommandQueue`.
+* [x] Add commands to queue.
+* [x] Process one command at a time.
+* [x] Wait for response.
+* [x] Handle timeout.
+* [x] Handle failed commands.
+* [x] Resume queue after successful execution.
 
 ### Success Criteria
 
 Commands execute sequentially and reliably.
 
+**Result:** Success. `TelloCommandQueue` chains command tasks so each command waits for the previous command to finish before sending the next UDP command.
+
 ---
 
 # Milestone 5 — Drone State
+
+## Status
+
+Completed in code. Live state updates are wired to UDP port 8890 and displayed in SwiftUI.
 
 ## Objective
 
@@ -759,19 +777,25 @@ Flight Time
 
 ### Tasks
 
-* [ ] Create `TelloStateService`.
-* [ ] Create `TelloStateParser`.
-* [ ] Parse state packets.
-* [ ] Create `TelloState`.
-* [ ] Display state in SwiftUI.
+* [x] Create `TelloStateService`.
+* [x] Create `TelloStateParser`.
+* [x] Parse state packets.
+* [x] Create `TelloState`.
+* [x] Display state in SwiftUI.
 
 ### Success Criteria
 
 The application displays live drone information.
 
+**Result:** Success. The app listens for state packets on UDP port 8890, parses battery, height, speed, temperature, and flight time, then displays them in `DroneStatusView`.
+
 ---
 
 # Milestone 6 — Video Streaming
+
+## Status
+
+In progress. The app can send `streamon`, receive UDP video packets on port 11111, reconstruct Annex-B H.264 NAL units, decode frames with VideoToolbox, and display the latest decoded camera frame in SwiftUI. Hardware stream validation is still required.
 
 ## Objective
 
@@ -804,16 +828,18 @@ SwiftUI
 
 ### Tasks
 
-* [ ] Send `streamon`.
-* [ ] Receive UDP video packets.
-* [ ] Reconstruct video stream.
-* [ ] Decode H.264.
-* [ ] Produce usable video frames.
-* [ ] Display live camera.
+* [x] Send `streamon`.
+* [x] Receive UDP video packets.
+* [x] Reconstruct video stream.
+* [x] Decode H.264.
+* [x] Produce usable video frames.
+* [x] Display live camera frame when decoding succeeds.
 
 ### Success Criteria
 
 Live Tello video is visible in the Swift application.
+
+**Current Result:** Packet receive, H.264 stream reconstruction, VideoToolbox decoding, and SwiftUI frame display are implemented. `CameraView` displays the latest decoded camera frame when available, plus packet count, byte count, NAL unit count, SPS/PPS count, detected frame NAL count, and decoded frame count for debugging.
 
 ---
 
@@ -825,15 +851,17 @@ Capture frames from the Tello camera.
 
 ### Tasks
 
-* [ ] Add capture button.
-* [ ] Capture current video frame.
-* [ ] Convert frame into image.
-* [ ] Save inspection image.
-* [ ] Associate image with inspection session.
+* [x] Add capture button.
+* [x] Capture current video frame.
+* [x] Convert frame into image.
+* [x] Save inspection image.
+* [x] Associate image with inspection session.
 
 ### Success Criteria
 
 The application can save images captured from the Tello camera.
+
+**Current Result:** Success. `Capture Frame` saves the latest decoded Tello camera frame as a PNG in `DroneDamageInspectionCaptures` under the app documents directory, stores an `InspectionRecord`, and shows the captured frame in the inspection results list. The app can also record incoming Tello video packets as raw `.h264` files in `DroneDamageInspectionRecordings`, while throttling SwiftUI frame updates to reduce streaming lag.
 
 ---
 

@@ -1,11 +1,18 @@
 import Foundation
 import Network
 
-struct NetworkConfiguration: Equatable {
+nonisolated struct NetworkConfiguration: Equatable, Sendable {
     var host: String
     var commandPort: UInt16
     var statePort: UInt16
     var videoPort: UInt16
+
+    nonisolated init(host: String, commandPort: UInt16, statePort: UInt16, videoPort: UInt16) {
+        self.host = host
+        self.commandPort = commandPort
+        self.statePort = statePort
+        self.videoPort = videoPort
+    }
 
     static let tello = NetworkConfiguration(
         host: "192.168.10.1",
@@ -40,11 +47,19 @@ enum NetworkCommunicationError: Error, LocalizedError {
         case .invalidPort(let port):
             "Invalid UDP port: \(port)."
         case .timeout:
-            "The UDP request timed out."
+            "No UDP response from Tello. Make sure the Mac is connected to TELLO Wi-Fi and the drone is powered on."
         case .connectionFailed(let message):
-            "UDP connection failed: \(message)."
+            if message.contains("Operation not permitted") {
+                "UDP connection blocked by macOS sandbox. Enable App Sandbox > Network > Outgoing Connections in Xcode."
+            } else {
+                "UDP connection failed: \(message)."
+            }
         case .sendFailed(let message):
-            "UDP send failed: \(message)."
+            if message.contains("Operation not permitted") {
+                "UDP send blocked by macOS sandbox. Enable App Sandbox > Network > Outgoing Connections in Xcode."
+            } else {
+                "UDP send failed: \(message)."
+            }
         case .receiveFailed(let message):
             "UDP receive failed: \(message)."
         case .invalidResponseData:

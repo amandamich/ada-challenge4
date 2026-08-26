@@ -1,6 +1,6 @@
 import Foundation
 
-struct TelloResponse: Equatable {
+struct TelloResponse: Equatable, Sendable {
     let message: String
     let receivedAt: Date
 
@@ -8,7 +8,7 @@ struct TelloResponse: Equatable {
         message.lowercased() == "ok"
     }
 
-    init(message: String, receivedAt: Date = Date()) {
+    nonisolated init(message: String, receivedAt: Date = Date()) {
         self.message = message
         self.receivedAt = receivedAt
     }
