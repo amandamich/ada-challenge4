@@ -15,20 +15,23 @@ enum TelloCommand: Equatable, Sendable {
     case moveDown(Int)
     case rotateClockwise(Int)
     case rotateCounterClockwise(Int)
+    case remoteControl(leftRight: Int, forwardBack: Int, upDown: Int, yaw: Int)
     case custom(String)
 
     var responseTimeout: TimeInterval {
         switch self {
         case .commandMode, .battery:
-            2
+            1.5
         case .streamOn, .streamOff:
-            2
+            1.5
         case .takeOff, .land:
-            8
+            5
         case .moveForward, .moveBackward, .moveLeft, .moveRight, .moveUp, .moveDown, .rotateClockwise, .rotateCounterClockwise:
-            5
+            3
+        case .remoteControl:
+            0.2
         case .custom:
-            5
+            3
         }
     }
 
@@ -62,6 +65,8 @@ enum TelloCommand: Equatable, Sendable {
             "cw \(degrees)"
         case .rotateCounterClockwise(let degrees):
             "ccw \(degrees)"
+        case .remoteControl(let leftRight, let forwardBack, let upDown, let yaw):
+            "rc \(leftRight) \(forwardBack) \(upDown) \(yaw)"
         case .custom(let command):
             command
         }

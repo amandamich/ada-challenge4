@@ -6,6 +6,7 @@ import VideoToolbox
 
 nonisolated struct VideoFrame: @unchecked Sendable {
     let image: CGImage
+    let pixelBuffer: CVPixelBuffer?
 }
 
 nonisolated struct H264DecodeOutput: Sendable {
@@ -38,6 +39,8 @@ actor VideoDecoder {
     private var decompressionSession: VTDecompressionSession?
     private var pendingAccessUnit: [H264NALUnit] = []
     private let frameRenderer = VideoFrameRenderer()
+    private let previewFrameStride = 2
+    private let maxPendingNALUnits = 64
 
     func append(_ packet: Data) -> H264DecodeOutput {
         let nalUnits = assembler.append(packet)
@@ -64,6 +67,9 @@ actor VideoDecoder {
             case .other:
                 if !pendingAccessUnit.isEmpty {
                     pendingAccessUnit.append(nalUnit)
+                    if pendingAccessUnit.count > maxPendingNALUnits {
+                        pendingAccessUnit.removeFirst(pendingAccessUnit.count - maxPendingNALUnits)
+                    }
                 }
             }
         }
@@ -78,6 +84,10 @@ actor VideoDecoder {
         pps = nil
         formatDescription = nil
         pendingAccessUnit.removeAll(keepingCapacity: true)
+        invalidateDecompressionSession()
+    }
+
+    private func invalidateDecompressionSession() {
         if let decompressionSession {
             VTDecompressionSessionInvalidate(decompressionSession)
         }
@@ -159,15 +169,16 @@ actor VideoDecoder {
     private func flushPendingAccessUnit() -> VideoFrame? {
         guard !pendingAccessUnit.isEmpty else { return nil }
 
+        let shouldRenderFrame = (stats.frameCount - 1).isMultiple(of: previewFrameStride)
         let accessUnit = pendingAccessUnit
         pendingAccessUnit.removeAll(keepingCapacity: true)
 
-        guard let frame = decode(accessUnit) else { return nil }
+        let frame = decode(accessUnit, rendersImage: shouldRenderFrame)
         stats.decodedFrameCount += 1
         return frame
     }
 
-    private func decode(_ accessUnit: [H264NALUnit]) -> VideoFrame? {
+    private func decode(_ accessUnit: [H264NALUnit], rendersImage: Bool) -> VideoFrame? {
         guard let decompressionSession,
               let formatDescription,
               let sampleBuffer = makeSampleBuffer(from: accessUnit, formatDescription: formatDescription) else {
@@ -182,17 +193,18 @@ actor VideoDecoder {
             flags: [],
             infoFlagsOut: &infoFlags
         ) { [frameRenderer, frameBox] status, _, imageBuffer, _, _ in
-            guard status == noErr,
-                  let imageBuffer,
-                  let image = frameRenderer.makeImage(from: imageBuffer) else {
+            guard status == noErr, let imageBuffer else {
                 return
             }
 
-            frameBox.set(VideoFrame(image: image))
+            guard rendersImage, let image = frameRenderer.makeImage(from: imageBuffer) else {
+                return
+            }
+
+            frameBox.set(VideoFrame(image: image, pixelBuffer: imageBuffer))
         }
 
         guard status == noErr else { return nil }
-        VTDecompressionSessionWaitForAsynchronousFrames(decompressionSession)
         return frameBox.frame
     }
 
@@ -282,7 +294,7 @@ private final class DecodedFrameBox: @unchecked Sendable {
 }
 
 private final class VideoFrameRenderer: @unchecked Sendable {
-    private let context = CIContext()
+    private let context = CIContext(options: [.useSoftwareRenderer: false])
 
     nonisolated init() {}
 
@@ -395,7 +407,7 @@ nonisolated struct H264AnnexBAssembler: Sendable {
     }
 
     private mutating func trimBufferIfNeeded() {
-        let maximumBufferSize = 2_000_000
+        let maximumBufferSize = 500_000
         if buffer.count > maximumBufferSize {
             buffer.removeFirst(buffer.count - maximumBufferSize)
         }

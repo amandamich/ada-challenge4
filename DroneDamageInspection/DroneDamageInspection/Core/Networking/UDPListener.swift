@@ -10,6 +10,28 @@ final class UDPListener: @unchecked Sendable {
     nonisolated(unsafe) private(set) var isListening = false
 
     func start(on port: UInt16, messageHandler: ((Data) -> Void)? = nil) async throws {
+        if isListening || listener != nil {
+            stop()
+        }
+
+        var lastError: Error?
+        for attempt in 1...3 {
+            do {
+                try await performStart(on: port, messageHandler: messageHandler)
+                return
+            } catch {
+                lastError = error
+                stop()
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                }
+            }
+        }
+
+        throw lastError ?? NetworkCommunicationError.connectionFailed("Unknown listener error")
+    }
+
+    private func performStart(on port: UInt16, messageHandler: ((Data) -> Void)?) async throws {
         guard let endpointPort = NetworkConfiguration.tello.endpointPort(for: port) else {
             throw NetworkCommunicationError.invalidPort(port)
         }
@@ -30,6 +52,7 @@ final class UDPListener: @unchecked Sendable {
                     listener.cancel()
                 case .cancelled:
                     self?.isListening = false
+                    completion.resume(throwing: CancellationError())
                 default:
                     break
                 }

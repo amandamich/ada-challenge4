@@ -2,6 +2,20 @@ import CoreGraphics
 import Foundation
 import Observation
 
+struct DroneJoystickInput: Equatable, Sendable {
+    var leftRight: Double
+    var forwardBack: Double
+    var upDown: Double
+    var yaw: Double
+
+    static let zero = DroneJoystickInput(
+        leftRight: 0,
+        forwardBack: 0,
+        upDown: 0,
+        yaw: 0
+    )
+}
+
 @MainActor
 @Observable
 final class DroneViewModel {
@@ -30,6 +44,12 @@ final class DroneViewModel {
     private let stateService: TelloStateService
     private let videoStreamService: VideoStreamService
     private var stateTask: Task<Void, Never>?
+    private var lastDisplayedVideoFrameDate = Date.distantPast
+    private let videoFrameDisplayInterval: TimeInterval = 1.0 / 15.0
+    private var lastJoystickCommandDate = Date.distantPast
+    private var lastJoystickInput = DroneJoystickInput.zero
+    private let joystickCommandInterval: TimeInterval = 0.10
+    private let joystickMaxSpeed = 40
 
     init(
         telloService: TelloService? = nil,
@@ -63,6 +83,7 @@ final class DroneViewModel {
         }
         updateVideoStats(.stopped)
         latestVideoFrame = nil
+        lastDisplayedVideoFrameDate = .distantPast
         isRecordingVideo = false
         telloService.disconnect()
         syncState(telloService.state)
@@ -75,6 +96,7 @@ final class DroneViewModel {
         stopStateUpdates()
         updateVideoStats(.stopped)
         latestVideoFrame = nil
+        lastDisplayedVideoFrameDate = .distantPast
         isRecordingVideo = false
 
         Task {
@@ -117,7 +139,7 @@ final class DroneViewModel {
             },
             onFrame: { frame in
                 Task { @MainActor in
-                    self.latestVideoFrame = frame.image
+                    self.displayVideoFrameIfNeeded(frame.image)
                 }
             },
             onError: { message in
@@ -146,6 +168,7 @@ final class DroneViewModel {
         await videoStreamService.stopStream()
         updateVideoStats(.stopped)
         latestVideoFrame = nil
+        lastDisplayedVideoFrameDate = .distantPast
 
         await runCommand {
             try await telloService.stopVideoStream()
@@ -231,6 +254,31 @@ final class DroneViewModel {
         }
     }
 
+    func sendJoystickControl(_ input: DroneJoystickInput) async {
+        guard isConnected else { return }
+
+        let now = Date()
+        let shouldSendImmediately = input == .zero || lastJoystickInput == .zero
+        guard shouldSendImmediately || now.timeIntervalSince(lastJoystickCommandDate) >= joystickCommandInterval else {
+            return
+        }
+
+        lastJoystickInput = input
+        lastJoystickCommandDate = now
+
+        do {
+            try await telloService.sendRemoteControl(
+                leftRight: scaledJoystickValue(input.leftRight),
+                forwardBack: scaledJoystickValue(input.forwardBack),
+                upDown: scaledJoystickValue(input.upDown),
+                yaw: scaledJoystickValue(input.yaw)
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func runCommand(_ operation: () async throws -> Void) async {
         do {
             try await operation()
@@ -239,6 +287,20 @@ final class DroneViewModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func displayVideoFrameIfNeeded(_ image: CGImage) {
+        let now = Date()
+        guard now.timeIntervalSince(lastDisplayedVideoFrameDate) >= videoFrameDisplayInterval else {
+            return
+        }
+
+        latestVideoFrame = image
+        lastDisplayedVideoFrameDate = now
+    }
+
+    private func scaledJoystickValue(_ value: Double) -> Int {
+        Int((max(-1, min(1, value)) * Double(joystickMaxSpeed)).rounded())
     }
 
     private func startStateUpdates() {

@@ -43,6 +43,7 @@ final class TelloService {
         Task {
             await commandQueue.removeAll()
         }
+        udpClient.resetConnection()
         state = .disconnected
     }
 
@@ -117,6 +118,16 @@ final class TelloService {
         try await executeOKCommand(.rotateCounterClockwise(degrees))
     }
 
+    func sendRemoteControl(leftRight: Int, forwardBack: Int, upDown: Int, yaw: Int) async throws {
+        let command = TelloCommand.remoteControl(
+            leftRight: clampControlValue(leftRight),
+            forwardBack: clampControlValue(forwardBack),
+            upDown: clampControlValue(upDown),
+            yaw: clampControlValue(yaw)
+        )
+        try await udpClient.sendWithoutResponse(command.rawValue)
+    }
+
     private func executeOKCommand(_ command: TelloCommand) async throws {
         let response = try await sendCommand(command)
 
@@ -136,11 +147,15 @@ final class TelloService {
                 lastError = error
 
                 if attempt < attempts {
-                    try await Task.sleep(for: .milliseconds(500))
+                    try await Task.sleep(for: .milliseconds(100))
                 }
             }
         }
 
         throw lastError ?? NetworkCommunicationError.timeout
+    }
+
+    private func clampControlValue(_ value: Int) -> Int {
+        min(100, max(-100, value))
     }
 }

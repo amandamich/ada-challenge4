@@ -11,6 +11,7 @@ struct CameraView: View {
     let frameCount: Int
     let decodedFrameCount: Int
     let latestFrame: CGImage?
+    var detections: [DetectionResult] = []
 
     var body: some View {
         ZStack {
@@ -18,9 +19,28 @@ struct CameraView: View {
                 .fill(.black.opacity(0.85))
 
             if let latestFrame {
-                Image(decorative: latestFrame, scale: 1)
-                    .resizable()
-                    .scaledToFit()
+                GeometryReader { geometry in
+                    let imageSize = CGSize(width: latestFrame.width, height: latestFrame.height)
+                    let fittedSize = fittedImageSize(for: imageSize, in: geometry.size)
+
+                    ZStack {
+                        Image(decorative: latestFrame, scale: 1)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: fittedSize.width, height: fittedSize.height)
+
+                        if !detections.isEmpty {
+                            ForEach(detections) { detection in
+                                DamageMarkerView(
+                                    detection: detection,
+                                    viewSize: fittedSize
+                                )
+                            }
+                        }
+                    }
+                    .frame(width: fittedSize.width, height: fittedSize.height)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                }
             }
 
             VStack(spacing: 12) {
@@ -38,6 +58,10 @@ struct CameraView: View {
                     Text("Packets: \(packetCount)  Bytes: \(byteCount)")
                     Text("NAL: \(nalUnitCount)  SPS: \(spsCount)  PPS: \(ppsCount)  Frames: \(frameCount)")
                     Text("Decoded: \(decodedFrameCount)")
+                    if !detections.isEmpty {
+                        Text("Detections: \(detections.count)")
+                            .foregroundStyle(.red)
+                    }
                 }
                 .font(.caption.monospacedDigit())
                 .padding(8)
@@ -45,9 +69,36 @@ struct CameraView: View {
                 .foregroundStyle(.white.opacity(0.85))
             }
         }
-        .aspectRatio(16 / 9, contentMode: .fit)
+        .aspectRatio(imageAspectRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding()
+    }
+
+    private var imageAspectRatio: CGFloat {
+        guard let latestFrame else { return 16 / 9 }
+        return CGFloat(latestFrame.width) / CGFloat(latestFrame.height)
+    }
+
+    private func fittedImageSize(for imageSize: CGSize, in containerSize: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0,
+              containerSize.width > 0, containerSize.height > 0 else {
+            return .zero
+        }
+
+        let imageAspectRatio = imageSize.width / imageSize.height
+        let containerAspectRatio = containerSize.width / containerSize.height
+
+        if imageAspectRatio > containerAspectRatio {
+            return CGSize(
+                width: containerSize.width,
+                height: containerSize.width / imageAspectRatio
+            )
+        } else {
+            return CGSize(
+                width: containerSize.height * imageAspectRatio,
+                height: containerSize.height
+            )
+        }
     }
 }
 

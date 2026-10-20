@@ -5,96 +5,150 @@ import Network
 final class UDPClient: @unchecked Sendable {
     private let configuration: NetworkConfiguration
     private let queue = DispatchQueue(label: "DroneDamageInspection.UDPClient")
+    private let lock = NSLock()
+    nonisolated(unsafe) private var connection: NWConnection?
+    nonisolated(unsafe) private var isConnected = false
 
     init(configuration: NetworkConfiguration = .tello) {
         self.configuration = configuration
     }
 
-    @discardableResult
-    func send(_ message: String, timeout: TimeInterval = 8) async throws -> String {
-        guard let port = configuration.commandEndpointPort else {
-            throw NetworkCommunicationError.invalidPort(configuration.commandPort)
+    private func getOrCreateConnection() -> NWConnection {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let connection, isConnected {
+            return connection
         }
 
-        let connection = NWConnection(
+        guard let port = configuration.commandEndpointPort else {
+            fatalError("Invalid Tello command port: \(configuration.commandPort)")
+        }
+
+        let newConnection = NWConnection(
             host: configuration.commandHost,
             port: port,
             using: .udp
         )
+
+        connection = newConnection
+        isConnected = true
+
+        newConnection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .failed, .cancelled:
+                self?.lock.lock()
+                self?.isConnected = false
+                self?.connection = nil
+                self?.lock.unlock()
+            default:
+                break
+            }
+        }
+
+        newConnection.start(queue: queue)
+        return newConnection
+    }
+
+    func resetConnection() {
+        lock.lock()
+        let oldConnection = connection
+        connection = nil
+        isConnected = false
+        lock.unlock()
+
+        oldConnection?.cancel()
+    }
+
+    @discardableResult
+    func send(_ message: String, timeout: TimeInterval = 3) async throws -> String {
+        let conn = getOrCreateConnection()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let completion = UDPResponseCompletion(continuation: continuation)
                 let timeoutHandler = UDPTimeout {
                     completion.resume(throwing: NetworkCommunicationError.timeout)
-                    connection.cancel()
+                    self.resetConnection()
                 }
 
                 timeoutHandler.schedule(on: queue, after: timeout)
 
-                connection.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready:
-                        let data = Data(message.utf8)
-                        connection.send(
-                            content: data,
-                            contentContext: .defaultMessage,
-                            isComplete: true,
-                            completion: .contentProcessed { error in
-                                if let error {
-                                    timeoutHandler.cancel()
-                                    completion.resume(throwing: NetworkCommunicationError.sendFailed(error.localizedDescription))
-                                    connection.cancel()
-                                    return
-                                }
+                let data = Data(message.utf8)
+                conn.send(
+                    content: data,
+                    contentContext: .defaultMessage,
+                    isComplete: true,
+                    completion: .contentProcessed { error in
+                        if let error {
+                            timeoutHandler.cancel()
+                            completion.resume(throwing: NetworkCommunicationError.sendFailed(error.localizedDescription))
+                            self.resetConnection()
+                            return
+                        }
 
-                                Self.receiveResponse(
-                                    on: connection,
-                                    timeout: timeoutHandler,
-                                    completion: completion
-                                )
-                            }
+                        Self.receiveResponse(
+                            on: conn,
+                            timeout: timeoutHandler,
+                            completion: completion,
+                            client: self
                         )
-                    case .failed(let error):
-                        timeoutHandler.cancel()
-                        completion.resume(throwing: NetworkCommunicationError.connectionFailed(error.localizedDescription))
-                        connection.cancel()
-                    case .cancelled:
-                        timeoutHandler.cancel()
-                    default:
-                        break
                     }
-                }
-
-                connection.start(queue: queue)
+                )
             }
         } onCancel: {
-            connection.cancel()
+            Task { @MainActor in
+                self.resetConnection()
+            }
+        }
+    }
+
+    func sendWithoutResponse(_ message: String) async throws {
+        let conn = getOrCreateConnection()
+
+        try await withCheckedThrowingContinuation { continuation in
+            let completion = UDPSendCompletion(continuation: continuation)
+            let data = Data(message.utf8)
+
+            conn.send(
+                content: data,
+                contentContext: .defaultMessage,
+                isComplete: true,
+                completion: .contentProcessed { error in
+                    if let error {
+                        completion.resume(throwing: NetworkCommunicationError.sendFailed(error.localizedDescription))
+                        self.resetConnection()
+                        return
+                    }
+
+                    completion.resume()
+                }
+            )
         }
     }
 
     private static func receiveResponse(
         on connection: NWConnection,
         timeout: UDPTimeout,
-        completion: UDPResponseCompletion
+        completion: UDPResponseCompletion,
+        client: UDPClient
     ) {
         connection.receiveMessage { data, _, _, error in
             timeout.cancel()
 
             if let error {
                 completion.resume(throwing: NetworkCommunicationError.receiveFailed(error.localizedDescription))
-                connection.cancel()
+                client.resetConnection()
                 return
             }
 
             guard let data, let response = String(data: data, encoding: .utf8) else {
                 completion.resume(throwing: NetworkCommunicationError.invalidResponseData)
-                connection.cancel()
+                client.resetConnection()
                 return
             }
 
             completion.resume(returning: response.trimmingCharacters(in: .whitespacesAndNewlines))
-            connection.cancel()
         }
     }
 }
@@ -130,6 +184,33 @@ private final class UDPResponseCompletion: @unchecked Sendable {
         lock.unlock()
 
         continuation?.resume(returning: value)
+    }
+
+    nonisolated func resume(throwing error: Error) {
+        lock.lock()
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume(throwing: error)
+    }
+}
+
+private final class UDPSendCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var continuation: CheckedContinuation<Void, Error>?
+
+    init(continuation: CheckedContinuation<Void, Error>) {
+        self.continuation = continuation
+    }
+
+    nonisolated func resume() {
+        lock.lock()
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume()
     }
 
     nonisolated func resume(throwing error: Error) {

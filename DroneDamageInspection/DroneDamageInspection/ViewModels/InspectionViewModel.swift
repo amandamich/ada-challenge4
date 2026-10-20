@@ -8,42 +8,124 @@ import UniformTypeIdentifiers
 @Observable
 final class InspectionViewModel {
     private(set) var detectedDamage: [Damage] = []
+    private(set) var trackedDetections: [DetectionResult] = []
     private(set) var inspectionRecords: [InspectionRecord] = []
+    private(set) var isDetecting = false
     private(set) var errorMessage: String?
+    private(set) var lastNewDamageCount = 0
+    var currentInspectionZone = BuildingZone.defaultZone
+    var usesMockDetection: Bool { damageDetectionService.mockMode }
 
     private let damageDetectionService: DamageDetectionService
+    private let damageTrackingService: DamageTrackingService
 
-    init(damageDetectionService: DamageDetectionService = DamageDetectionService()) {
-        self.damageDetectionService = damageDetectionService
+    init(
+        damageDetectionService: DamageDetectionService? = nil,
+        damageTrackingService: DamageTrackingService? = nil
+    ) {
+        self.damageDetectionService = damageDetectionService ?? DamageDetectionService()
+        self.damageTrackingService = damageTrackingService ?? DamageTrackingService()
     }
 
-    func captureFrame(_ image: CGImage) {
+    func loadModel() async {
         do {
-            let imageFileURL = try saveCapturedImage(image)
-            inspectionRecords.insert(
-                InspectionRecord(
-                    imageFileURL: imageFileURL,
-                    capturedImage: image
-                ),
-                at: 0
+            print("[Inspection] Loading Core ML model...")
+            try await damageDetectionService.loadModel()
+            if damageDetectionService.mockMode {
+                errorMessage = nil
+                print("[Inspection] Using mock detection mode (no .mlmodel found).")
+            } else {
+                errorMessage = nil
+                print("[Inspection] Model loaded successfully.")
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            print("[Inspection] Model load FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    func detectDamage(in image: CGImage) async {
+        guard !isDetecting else {
+            print("[Inspection] Detection already in progress, skipping.")
+            return
+        }
+        isDetecting = true
+        defer { isDetecting = false }
+
+        do {
+            print("[Inspection] Running detection on \(image.width)x\(image.height) image...")
+            let rawDetections = try await damageDetectionService.detectDamage(in: image)
+            print("[Inspection] Raw detections: \(rawDetections.count)")
+            let existingTrackedIDs = Set(trackedDetections.map(\.id))
+            let tracked = damageTrackingService.update(with: rawDetections)
+            print("[Inspection] Tracked detections: \(tracked.count)")
+            trackedDetections = tracked
+            let newDetections = tracked.filter { !existingTrackedIDs.contains($0.id) }
+            lastNewDamageCount = newDetections.count
+            try saveNewDamageRecords(from: newDetections, sourceImage: image)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            print("[Inspection] Detection FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    func captureAndInspect(_ image: CGImage) {
+        do {
+            let annotatedImage: CGImage
+            if !trackedDetections.isEmpty {
+                annotatedImage = ImageAnnotationRenderer.renderDetections(on: image, detections: trackedDetections) ?? image
+            } else {
+                annotatedImage = image
+            }
+
+            let imageFileURL = try saveCapturedImage(annotatedImage)
+
+            let record = InspectionRecord(
+                damageTypes: trackedDetections.map(\.damageType),
+                detections: trackedDetections,
+                imageFileURL: imageFileURL,
+                capturedImage: annotatedImage
             )
+            inspectionRecords.insert(record, at: 0)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func inspectCurrentFrame() async {
-        do {
-            detectedDamage = try await damageDetectionService.detectDamage()
-            inspectionRecords.insert(
-                InspectionRecord(damageTypes: detectedDamage.map(\.type)),
-                at: 0
+    func clearTracking() {
+        damageTrackingService.clear()
+        trackedDetections = []
+        lastNewDamageCount = 0
+    }
+
+    func damages(in zone: BuildingZone) -> [Damage] {
+        detectedDamage.filter { $0.inspectionZone == zone }
+    }
+
+    private func saveNewDamageRecords(
+        from detections: [DetectionResult],
+        sourceImage: CGImage
+    ) throws {
+        guard !detections.isEmpty else { return }
+
+        for detection in detections {
+            let evidenceImage = ImageAnnotationRenderer.renderDetections(
+                on: sourceImage,
+                detections: [detection]
+            ) ?? sourceImage
+            let evidenceURL = try saveCapturedImage(evidenceImage)
+            let damage = Damage(
+                id: detection.id,
+                type: detection.damageType,
+                confidence: detection.confidence,
+                boundingBox: detection.boundingBox,
+                inspectionZone: currentInspectionZone,
+                evidenceImageFileURL: evidenceURL,
+                evidenceImage: evidenceImage
             )
-            errorMessage = nil
-        } catch {
-            detectedDamage = []
-            errorMessage = error.localizedDescription
+            detectedDamage.insert(damage, at: 0)
         }
     }
 

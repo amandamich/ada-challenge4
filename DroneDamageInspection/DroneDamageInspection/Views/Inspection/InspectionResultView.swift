@@ -7,61 +7,113 @@ struct InspectionResultView: View {
     let records: [InspectionRecord]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            if !records.isEmpty {
+                Text("Inspection Records")
+                    .font(.headline)
+                    .padding(.horizontal)
+            }
+
             if records.isEmpty {
                 Text("No captured inspection frames")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal)
             } else {
                 ForEach(records) { record in
-                    HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
                         if let image = record.capturedImage {
                             Image(decorative: image, scale: 1)
                                 .resizable()
                                 .scaledToFill()
-                                .frame(width: 96, height: 54)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 200)
                                 .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                         } else {
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: 8)
                                 .fill(.secondary.opacity(0.18))
-                                .frame(width: 96, height: 54)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 200)
                                 .overlay {
                                     Image(systemName: "photo")
+                                        .font(.largeTitle)
                                         .foregroundStyle(.secondary)
                                 }
                         }
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(record.createdAt.formatted(date: .abbreviated, time: .standard))
-                                .font(.headline)
+                            HStack {
+                                Text(record.createdAt.formatted(date: .abbreviated, time: .standard))
+                                    .font(.subheadline.weight(.semibold))
 
-                            if let fileName = record.imageFileURL?.lastPathComponent {
-                                Text(fileName)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                Spacer()
+
+                                if let fileName = record.imageFileURL?.lastPathComponent {
+                                    Text(fileName)
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
 
-                            Text(record.damageTypes.isEmpty ? "Ready for inspection" : record.damageTypes.joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            if record.detections.isEmpty {
+                                Text("No damage detected")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("\(record.detections.count) detection(s)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
-                        Spacer()
+                        if !record.detections.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(record.detections) { detection in
+                                    HStack(spacing: 8) {
+                                        Circle()
+                                            .fill(.red)
+                                            .frame(width: 6, height: 6)
 
-                        if let imageFileURL = record.imageFileURL {
-                            Button {
-                                revealCapture(imageFileURL)
-                            } label: {
-                                Image(systemName: "folder")
+                                        Text(detection.damageType)
+                                            .font(.caption.weight(.semibold))
+
+                                        Text("\(Int(detection.confidence * 100))%")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+
+                                        Spacer()
+
+                                        if let imageFileURL = record.imageFileURL {
+                                            Button {
+                                                revealCapture(imageFileURL)
+                                            } label: {
+                                                Image(systemName: "folder")
+                                            }
+                                            .buttonStyle(.borderless)
+                                            .help("Reveal in Finder")
+                                        }
+                                    }
+                                }
                             }
-                            .buttonStyle(.borderless)
-                            .help("Reveal captured image in Finder")
+                            .padding(8)
+                            .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        } else if let imageFileURL = record.imageFileURL {
+                            HStack {
+                                Spacer()
+                                Button {
+                                    revealCapture(imageFileURL)
+                                } label: {
+                                    Image(systemName: "folder")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Reveal in Finder")
+                            }
                         }
                     }
                     .padding(8)
-                    .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
                 }
             }
         }

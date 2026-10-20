@@ -14,10 +14,7 @@
 		B9BEF7343038056200F44AD3 /* Exceptions for "DroneDamageInspection" folder in "DroneDamageInspection" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Detection/DamageDetectionService.swift,
-				Models/Damage.swift,
 				ProjectOverview.md,
-				ViewModels/InspectionViewModel.swift,
 			);
 			target = B9BEF6F73038045D00F44AD3 /* DroneDamageInspection */;
 		};

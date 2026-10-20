@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 
 nonisolated struct VideoStreamStats: Equatable, Sendable {
@@ -69,12 +70,16 @@ actor VideoStreamService {
                 frameCount: 0,
                 decodedFrameCount: 0
             )
+            var frameTimestamp = CMTime(value: 0, timescale: 30)
+            var lastStatsUpdateDate = Date.distantPast
+            let statsUpdateInterval: TimeInterval = 0.25
 
             await decoder.reset()
 
             do {
                 for try await packet in receiver.packetStream() {
-                    try recorder.append(packet)
+                    guard !Task.isCancelled else { break }
+
                     let decodeOutput = await decoder.append(packet)
                     let h264Stats = decodeOutput.stats
 
@@ -86,12 +91,17 @@ actor VideoStreamService {
                     currentStats.frameCount = h264Stats.frameCount
                     currentStats.decodedFrameCount = h264Stats.decodedFrameCount
 
-                    if currentStats.packetCount.isMultiple(of: 10) || decodeOutput.frame != nil {
+                    let now = Date()
+                    if now.timeIntervalSince(lastStatsUpdateDate) >= statsUpdateInterval {
                         onStatsUpdate(currentStats)
+                        lastStatsUpdateDate = now
                     }
 
-                    if let frame = decodeOutput.frame,
-                       h264Stats.decodedFrameCount.isMultiple(of: 3) {
+                    if let frame = decodeOutput.frame {
+                        if recorder.isRecording, let pixelBuffer = frame.pixelBuffer {
+                            try? recorder.append(pixelBuffer: pixelBuffer, presentationTime: frameTimestamp)
+                            frameTimestamp = CMTimeAdd(frameTimestamp, CMTime(value: 1, timescale: 30))
+                        }
                         onFrame(frame)
                     }
                 }
@@ -103,8 +113,8 @@ actor VideoStreamService {
         }
     }
 
-    func startRecording() throws -> URL {
-        try recorder.startRecording()
+    func startRecording(width: Int = 960, height: Int = 720) throws -> URL {
+        try recorder.startRecording(width: width, height: height)
     }
 
     func stopRecording() throws -> URL? {
